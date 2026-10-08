@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mantenimiento - V11 (Conectada a Supabase)</title>
+    
+    <!-- Librerías de React y Estilos -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    
+    <!-- LIBRERÍA OFICIAL DE SUPABASE -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        .bg-app-dark { background-color: #0f172a; }
+        .bg-card-dark { background-color: #1e293b; }
+    </style>
+</head>
+<body class="bg-app-dark text-gray-100 font-sans antialiased h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ==========================================
+        // 1. INICIALIZACIÓN DEL MOTOR DE BASE DE DATOS
+        // ==========================================
+        const supabaseUrl = 'https://qlrjvrktlomdqhcnhlaw.supabase.co';
+        const supabaseKey = 'sb_publishable_JjwIViAhKNr-7tzhPpW2Jg_xVGHO0-t';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        function App() {
+            const [tabActiva, setTabActiva] = useState('config'); // Empezamos en la pestaña Base de Datos
+            
+            // Estados para la Base de Datos Real
+            const [personalDB, setPersonalDB] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [nuevoNombre, setNuevoNombre] = useState('');
+            const [nuevoIngreso, setNuevoIngreso] = useState('07:00');
+            const [nuevoEgreso, setNuevoEgreso] = useState('15:18');
+
+            // ==========================================
+            // 2. LÓGICA DE CONEXIÓN CON TU SERVIDOR
+            // ==========================================
+            useEffect(() => {
+                obtenerPersonal();
+            }, []);
+
+            // Función para LEER de tu base de datos
+            const obtenerPersonal = async () => {
+                setCargando(true);
+                const { data, error } = await supabase
+                    .from('personal')
+                    .select('*')
+                    .order('nombre_completo', { ascending: true });
+                
+                if (error) console.error('Error al cargar datos:', error);
+                else setPersonalDB(data);
+                
+                setCargando(false);
+            };
+
+            // Función para ESCRIBIR en tu base de datos
+            const agregarPersonal = async (e) => {
+                e.preventDefault();
+                const { data, error } = await supabase
+                    .from('personal')
+                    .insert([
+                        { 
+                            nombre_completo: nuevoNombre, 
+                            hora_ingreso: nuevoIngreso, 
+                            hora_salida: nuevoEgreso 
+                        }
+                    ]);
+
+                if (error) {
+                    alert('Error al guardar: ' + error.message);
+                } else {
+                    setNuevoNombre('');
+                    obtenerPersonal(); // Recargar la tabla
+                }
+            };
+
+            // Función para BORRAR de tu base de datos
+            const eliminarPersonal = async (id) => {
+                if(window.confirm('¿Seguro que deseas eliminar este técnico?')) {
+                    const { error } = await supabase.from('personal').delete().eq('id', id);
+                    if (!error) obtenerPersonal();
+                }
+            };
+
+            // ==========================================
+            // 3. INTERFAZ VISUAL
+            // ==========================================
+            const renderBaseDatos = () => {
+                return (
+                    <div class="p-6 h-full overflow-y-auto">
+                        <div class="flex items-center mb-6 border-b border-gray-700 pb-3">
+                            <h2 class="text-2xl font-bold text-white mr-4">Base de Datos Viva</h2>
+                            <span class="px-3 py-1 bg-green-900 text-green-300 text-xs font-bold rounded-full border border-green-700 flex items-center">
+                                <span class="w-2 h-2 rounded-full bg-green-400 mr-2 animate-pulse"></span> Conectado a PostgreSQL
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            
+                            {/* FORMULARIO DE CARGA REAL */}
+                            <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6 h-max">
+                                <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">
+                                    <i class="fas fa-user-plus text-blue-400 mr-2"></i> Alta de Personal
+                                </h3>
+                                <form onSubmit={agregarPersonal} class="space-y-4">
+                                    <div>
+                                        <label class="block text-xs text-gray-400 mb-1">Apellido y Nombre</label>
+                                        <input type="text" required value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)}
+                                            class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" 
+                                            placeholder="Ej: Silva, M." />
+                                    </div>
+                                    <div class="flex gap-4">
+                                        <div class="w-1/2">
+                                            <label class="block text-xs text-gray-400 mb-1">Ingreso</label>
+                                            <input type="time" required value={nuevoIngreso} onChange={e => setNuevoIngreso(e.target.value)}
+                                                class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                                        </div>
+                                        <div class="w-1/2">
+                                            <label class="block text-xs text-gray-400 mb-1">Salida</label>
+                                            <input type="time" required value={nuevoEgreso} onChange={e => setNuevoEgreso(e.target.value)}
+                                                class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded transition shadow-lg mt-2">
+                                        Guardar en Servidor
+                                    </button>
+                                </form>
+                            </div>
+
+                            {/* TABLA QUE LEE DE SUPABASE */}
+                            <div class="lg:col-span-2 bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6">
+                                <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2 flex justify-between">
+                                    <span><i class="fas fa-users text-green-400 mr-2"></i> Plantilla Activa</span>
+                                    <button onClick={obtenerPersonal} class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-gray-300 transition">
+                                        <i class="fas fa-sync-alt mr-1"></i> Actualizar
+                                    </button>
+                                </h3>
+                                
+                                {cargando ? (
+                                    <div class="text-center py-10 text-gray-400">
+                                        <i class="fas fa-spinner fa-spin text-3xl mb-3 text-blue-500"></i>
+                                        <p>Consultando base de datos...</p>
+                                    </div>
+                                ) : personalDB.length === 0 ? (
+                                    <div class="text-center py-10 text-gray-500 bg-gray-800 rounded-lg border border-dashed border-gray-600">
+                                        <i class="fas fa-database text-4xl mb-3 opacity-50"></i>
+                                        <p>La tabla de personal está vacía.</p>
+                                        <p class="text-sm mt-1">Utiliza el formulario para cargar tu primer técnico en la base real.</p>
+                                    </div>
+                                ) : (
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-left text-sm text-gray-300">
+                                            <thead class="text-xs text-gray-400 uppercase bg-gray-800 border-b border-gray-700">
+                                                <tr>
+                                                    <th class="px-4 py-3 rounded-tl-lg">Técnico</th>
+                                                    <th class="px-4 py-3">Horario</th>
+                                                    <th class="px-4 py-3">Estado DB</th>
+                                                    <th class="px-4 py-3 rounded-tr-lg text-right">Acción</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {personalDB.map(p => (
+                                                    <tr key={p.id} class="border-b border-gray-700 hover:bg-gray-800 transition">
+                                                        <td class="px-4 py-3 font-medium text-white">{p.nombre_completo}</td>
+                                                        <td class="px-4 py-3 font-mono text-xs">{p.hora_ingreso.slice(0,5)} a {p.hora_salida.slice(0,5)}</td>
+                                                        <td class="px-4 py-3">
+                                                            {p.activo ? 
+                                                                <span class="text-green-400 text-xs"><i class="fas fa-check-circle mr-1"></i> Activo</span> : 
+                                                                <span class="text-red-400 text-xs"><i class="fas fa-times-circle mr-1"></i> Inactivo</span>
+                                                            }
+                                                        </td>
+                                                        <td class="px-4 py-3 text-right">
+                                                            <button onClick={() => eliminarPersonal(p.id)} class="text-red-400 hover:text-red-300 transition">
+                                                                <i class="fas fa-trash-alt"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderMantenimiento = () => (
+                <div class="p-6 h-full flex flex-col items-center justify-center text-center text-gray-500">
+                    <i class="fas fa-tools text-6xl mb-4 text-gray-600"></i>
+                    <h2 class="text-2xl font-bold text-gray-300">Módulo en Integración</h2>
+                    <p class="mt-2 text-sm max-w-md">Para visualizar el Dashboard Gerencial, primero debes cargar a tu equipo en la pestaña "Base de Datos".</p>
+                </div>
+            );
+
+            return (
+                <div class="flex h-full">
+                    {/* Sidebar */}
+                    <div class="w-16 md:w-64 bg-card-dark border-r border-gray-800 flex flex-col z-20 shadow-xl">
+                        <div class="p-4 md:p-6 border-b border-gray-800 text-center md:text-left">
+                            <h1 class="text-xl font-bold text-white tracking-wider hidden md:block">
+                                <i class="fas fa-cogs text-blue-500 mr-2"></i>MANT<span class="text-blue-500">SYS</span>
+                            </h1>
+                            <i class="fas fa-cogs text-blue-500 text-xl md:hidden"></i>
+                        </div>
+                        <nav class="p-2 md:p-4 space-y-2 flex-1">
+                            <button onClick={() => setTabActiva('config')} class={`w-full flex items-center justify-center md:justify-start p-3 rounded font-semibold transition ${tabActiva === 'config' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-gray-800'}`}>
+                                <i class="fas fa-database md:mr-3"></i> <span class="hidden md:inline">Base de Datos</span>
+                            </button>
+                            <button onClick={() => setTabActiva('dashboard')} class={`w-full flex items-center justify-center md:justify-start p-3 rounded transition ${tabActiva === 'dashboard' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:bg-gray-800'}`}>
+                                <i class="fas fa-th-large md:mr-3"></i> <span class="hidden md:inline">Dashboard</span>
+                            </button>
+                        </nav>
+                    </div>
+
+                    {/* Main Content */}
+                    <div class="flex-1 overflow-hidden bg-app-dark">
+                        {tabActiva === 'config' ? renderBaseDatos() : renderMantenimiento()}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
