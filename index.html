@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mantenimiento - V12 (Edición y Carga Masiva)</title>
+    <title>Mantenimiento - V13 (Carga Masiva Excel)</title>
     
     <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
@@ -11,7 +11,6 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
     
-    <!-- LIBRERÍA OFICIAL DE SUPABASE -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
@@ -31,51 +30,46 @@
 
         function App() {
             const [tabActiva, setTabActiva] = useState('config'); 
-            const [subTabConfig, setSubTabConfig] = useState('personal'); // personal | maquinas | tareas
+            const [subTabConfig, setSubTabConfig] = useState('excel'); // personal | excel
             
             // Estados para Personal
             const [personalDB, setPersonalDB] = useState([]);
-            const [cargando, setCargando] = useState(true);
             const [editandoId, setEditandoId] = useState(null);
-            
-            // Formularios
             const [nuevoNombre, setNuevoNombre] = useState('');
             const [nuevoIngreso, setNuevoIngreso] = useState('06:00');
             const [nuevoEgreso, setNuevoEgreso] = useState('14:18');
 
-            // Estados para Carga Masiva (Máquinas y Tareas)
-            const [textoMaquinas, setTextoMaquinas] = useState('');
-            const [textoTareas, setTextoTareas] = useState('');
+            // Estados para Excel / Tareas
+            const [textoExcel, setTextoExcel] = useState('');
+            const [tareasDB, setTareasDB] = useState([]);
             const [mensajeExito, setMensajeExito] = useState('');
 
             useEffect(() => {
                 obtenerPersonal();
+                obtenerTareas();
             }, []);
+
+            const mostrarMensaje = (texto) => {
+                setMensajeExito(texto);
+                setTimeout(() => setMensajeExito(''), 4000);
+            };
 
             // ==========================================
             // LOGICA: PERSONAL
             // ==========================================
             const obtenerPersonal = async () => {
-                setCargando(true);
-                const { data, error } = await supabase.from('personal').select('*').order('nombre_completo', { ascending: true });
-                if (!error) setPersonalDB(data);
-                setCargando(false);
+                const { data } = await supabase.from('personal').select('*').order('nombre_completo', { ascending: true });
+                if (data) setPersonalDB(data);
             };
 
             const guardarPersonal = async (e) => {
                 e.preventDefault();
                 if (editandoId) {
-                    // MODO EDICIÓN
-                    const { error } = await supabase.from('personal')
-                        .update({ nombre_completo: nuevoNombre, hora_ingreso: nuevoIngreso, hora_salida: nuevoEgreso })
-                        .eq('id', editandoId);
-                    if (!error) cancelarEdicion();
+                    await supabase.from('personal').update({ nombre_completo: nuevoNombre, hora_ingreso: nuevoIngreso, hora_salida: nuevoEgreso }).eq('id', editandoId);
                 } else {
-                    // MODO NUEVO
-                    const { error } = await supabase.from('personal')
-                        .insert([{ nombre_completo: nuevoNombre, hora_ingreso: nuevoIngreso, hora_salida: nuevoEgreso }]);
-                    if (!error) cancelarEdicion();
+                    await supabase.from('personal').insert([{ nombre_completo: nuevoNombre, hora_ingreso: nuevoIngreso, hora_salida: nuevoEgreso }]);
                 }
+                cancelarEdicion();
                 obtenerPersonal();
             };
 
@@ -94,167 +88,66 @@
             };
 
             const alternarEstadoActivo = async (id, estadoActual) => {
-                const { error } = await supabase.from('personal').update({ activo: !estadoActual }).eq('id', id);
-                if (!error) obtenerPersonal();
+                await supabase.from('personal').update({ activo: !estadoActual }).eq('id', id);
+                obtenerPersonal();
             };
 
             // ==========================================
-            // LOGICA: CARGA MASIVA MÁQUINAS Y TAREAS
+            // LOGICA: TAREAS (EXCEL)
             // ==========================================
-            const guardarMaquinasMasivas = async (e) => {
-                e.preventDefault();
-                // Separa el texto por saltos de línea, quita espacios extra y elimina líneas vacías
-                const lineas = textoMaquinas.split('\n').map(l => l.trim()).filter(l => l !== '');
-                if(lineas.length === 0) return;
+            const obtenerTareas = async () => {
+                // Asumimos que guardamos todo en tareas_maestras por ahora
+                const { data } = await supabase.from('tareas_maestras').select('*').order('id', { ascending: false }).limit(50);
+                if (data) setTareasDB(data);
+            };
 
-                // Asumo que en Supabase la columna se llama "nombre" para la tabla maquinas
-                const registros = lineas.map(nombre => ({ nombre: nombre }));
-                
-                const { error } = await supabase.from('maquinas').insert(registros);
-                if (error) {
-                    alert('Error al guardar máquinas. Verifica que la columna en Supabase se llame "nombre". ' + error.message);
+            const procesarExcel = async () => {
+                if (!textoExcel.trim()) return;
+
+                // Excel separa las columnas copiadas con tabulaciones (\t) y las filas con saltos de línea (\n)
+                const filas = textoExcel.split('\n').filter(f => f.trim() !== '');
+                const registrosNuevos = [];
+
+                filas.forEach(fila => {
+                    const columnas = fila.split('\t');
+                    // Verificamos tener al menos las columnas clave (índice 0: Máquina, índice 1: Orden, índice 4: Duración, índice 6: Operarios)
+                    if (columnas.length >= 7) {
+                        registrosNuevos.push({
+                            maquina: columnas[0].trim(),
+                            descripcion: columnas[1].trim(),
+                            duracion_minutos: parseInt(columnas[4]) || 0,
+                            operarios_req: parseInt(columnas[6]) || 1
+                        });
+                    }
+                });
+
+                if (registrosNuevos.length > 0) {
+                    const { error } = await supabase.from('tareas_maestras').insert(registrosNuevos);
+                    if (error) {
+                        alert('Error al guardar en BD. Asegúrate de tener las columnas: maquina, descripcion, duracion_minutos, operarios_req en la tabla tareas_maestras.\n\nDetalle: ' + error.message);
+                    } else {
+                        setTextoExcel('');
+                        mostrarMensaje(`¡Se procesaron y guardaron ${registrosNuevos.length} preventivos con éxito!`);
+                        obtenerTareas();
+                    }
                 } else {
-                    setTextoMaquinas('');
-                    mostrarMensaje(`¡${lineas.length} máquinas guardadas con éxito!`);
+                    alert('No se detectaron las 8 columnas requeridas. Asegúrate de copiar el formato correcto del Excel.');
                 }
             };
 
-            const guardarTareasMasivas = async (e) => {
-                e.preventDefault();
-                const lineas = textoTareas.split('\n').map(l => l.trim()).filter(l => l !== '');
-                if(lineas.length === 0) return;
-
-                // Asumo que la columna se llama "descripcion" para tareas_maestras
-                const registros = lineas.map(desc => ({ descripcion: desc }));
-                
-                const { error } = await supabase.from('tareas_maestras').insert(registros);
-                if (error) {
-                    alert('Error al guardar tareas. Verifica que la columna en Supabase se llame "descripcion". ' + error.message);
-                } else {
-                    setTextoTareas('');
-                    mostrarMensaje(`¡${lineas.length} tareas guardadas con éxito!`);
+            const eliminarTarea = async (id) => {
+                if(window.confirm('¿Eliminar este preventivo de la base de datos?')) {
+                    await supabase.from('tareas_maestras').delete().eq('id', id);
+                    obtenerTareas();
                 }
             };
 
-            const mostrarMensaje = (texto) => {
-                setMensajeExito(texto);
-                setTimeout(() => setMensajeExito(''), 3000);
-            };
-
             // ==========================================
-            // RENDER: PESTAÑAS DE CONFIGURACIÓN
-            // ==========================================
-            const renderSeccionPersonal = () => (
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* FORMULARIO */}
-                    <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6 h-max">
-                        <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">
-                            {editandoId ? <span class="text-yellow-400"><i class="fas fa-edit mr-2"></i>Editar Operario</span> : <span><i class="fas fa-user-plus text-blue-400 mr-2"></i>Alta de Personal</span>}
-                        </h3>
-                        <form onSubmit={guardarPersonal} class="space-y-4">
-                            <div>
-                                <label class="block text-xs text-gray-400 mb-1">Apellido y Nombre</label>
-                                <input type="text" required value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)}
-                                    class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" 
-                                    placeholder="Ej: Silva, M." />
-                            </div>
-                            <div class="flex gap-4">
-                                <div class="w-1/2">
-                                    <label class="block text-xs text-gray-400 mb-1">Ingreso</label>
-                                    <input type="time" required value={nuevoIngreso} onChange={e => setNuevoIngreso(e.target.value)}
-                                        class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-                                </div>
-                                <div class="w-1/2">
-                                    <label class="block text-xs text-gray-400 mb-1">Salida</label>
-                                    <input type="time" required value={nuevoEgreso} onChange={e => setNuevoEgreso(e.target.value)}
-                                        class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
-                                </div>
-                            </div>
-                            <div class="flex gap-2 mt-2">
-                                <button type="submit" class={`flex-1 font-bold py-2 px-4 rounded transition shadow-lg text-white ${editandoId ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
-                                    {editandoId ? 'Actualizar Datos' : 'Guardar en Servidor'}
-                                </button>
-                                {editandoId && (
-                                    <button type="button" onClick={cancelarEdicion} class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded transition">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                )}
-                            </div>
-                        </form>
-                    </div>
-
-                    {/* TABLA DE PERSONAL */}
-                    <div class="lg:col-span-2 bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6">
-                        <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2 flex justify-between items-center">
-                            <span><i class="fas fa-users text-green-400 mr-2"></i> Plantilla</span>
-                            <button onClick={obtenerPersonal} class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-gray-300">
-                                <i class="fas fa-sync-alt"></i>
-                            </button>
-                        </h3>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm text-gray-300">
-                                <thead class="text-xs text-gray-400 uppercase bg-gray-800 border-b border-gray-700">
-                                    <tr>
-                                        <th class="px-4 py-3">Técnico</th>
-                                        <th class="px-4 py-3">Horario</th>
-                                        <th class="px-4 py-3">Estado</th>
-                                        <th class="px-4 py-3 text-right">Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {personalDB.map(p => (
-                                        <tr key={p.id} class={`border-b border-gray-700 hover:bg-gray-800 transition ${!p.activo ? 'opacity-50' : ''}`}>
-                                            <td class="px-4 py-3 font-medium text-white">{p.nombre_completo}</td>
-                                            <td class="px-4 py-3 font-mono text-xs">{p.hora_ingreso.slice(0,5)} a {p.hora_salida.slice(0,5)}</td>
-                                            <td class="px-4 py-3">
-                                                <button onClick={() => alternarEstadoActivo(p.id, p.activo)} class={`text-xs px-2 py-1 rounded font-bold ${p.activo ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
-                                                    {p.activo ? 'Activo' : 'Inactivo'}
-                                                </button>
-                                            </td>
-                                            <td class="px-4 py-3 text-right space-x-3">
-                                                <button onClick={() => iniciarEdicion(p)} class="text-yellow-400 hover:text-yellow-300 transition" title="Editar datos">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            );
-
-            const renderSeccionCargaMasiva = (titulo, icono, placeholder, texto, setTexto, guardarFunc) => (
-                <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6 max-w-3xl mx-auto">
-                    <h3 class="text-xl font-bold text-white mb-2"><i class={`fas ${icono} text-blue-400 mr-2`}></i> Carga Masiva: {titulo}</h3>
-                    <p class="text-gray-400 text-sm mb-4">Copia una columna desde Excel y pégala aquí. Cada renglón se guardará como un registro independiente en la base de datos.</p>
-                    
-                    <form onSubmit={guardarFunc}>
-                        <textarea 
-                            value={texto} 
-                            onChange={e => setTexto(e.target.value)}
-                            class="w-full h-64 bg-gray-800 border border-gray-600 rounded p-4 text-sm text-white font-mono focus:border-blue-500 focus:outline-none mb-4"
-                            placeholder={placeholder}
-                            required
-                        ></textarea>
-                        
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs text-gray-500">Líneas detectadas: {texto.split('\n').filter(l=>l.trim()!=='').length}</span>
-                            <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded shadow-lg transition">
-                                Guardar en Servidor
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            );
-
-            // ==========================================
-            // RUTA PRINCIPAL (RENDER)
+            // RENDER VISUAL
             // ==========================================
             return (
                 <div class="flex h-full">
-                    {/* SIDEBAR PRINCIPAL */}
+                    {/* SIDEBAR */}
                     <div class="w-16 md:w-64 bg-card-dark border-r border-gray-800 flex flex-col z-20 shadow-xl">
                         <div class="p-4 md:p-6 border-b border-gray-800 text-center md:text-left">
                             <h1 class="text-xl font-bold text-white tracking-wider hidden md:block">
@@ -272,9 +165,8 @@
                         </nav>
                     </div>
 
-                    {/* CONTENIDO PRINCIPAL */}
+                    {/* MAIN CONTENT */}
                     <div class="flex-1 flex flex-col overflow-hidden bg-app-dark relative">
-                        {/* ALERTA DE EXITO FLOTANTE */}
                         {mensajeExito && (
                             <div class="absolute top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg flex items-center z-50">
                                 <i class="fas fa-check-circle mr-2"></i> {mensajeExito}
@@ -283,18 +175,145 @@
 
                         {tabActiva === 'config' ? (
                             <div class="flex-1 flex flex-col h-full">
-                                {/* SUB-MENÚ DE CONFIGURACIÓN */}
+                                {/* PESTAÑAS INTERNAS */}
                                 <div class="bg-gray-900 border-b border-gray-800 p-4 flex gap-4">
-                                    <button onClick={() => setSubTabConfig('personal')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'personal' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Personal</button>
-                                    <button onClick={() => setSubTabConfig('maquinas')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'maquinas' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Máquinas</button>
-                                    <button onClick={() => setSubTabConfig('tareas')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'tareas' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Catálogo de Tareas</button>
+                                    <button onClick={() => setSubTabConfig('personal')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'personal' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Personal / Técnicos</button>
+                                    <button onClick={() => setSubTabConfig('excel')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'excel' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Carga Masiva Excel</button>
                                 </div>
                                 
-                                {/* PANTALLA ACTIVA */}
                                 <div class="p-6 overflow-y-auto flex-1">
-                                    {subTabConfig === 'personal' && renderSeccionPersonal()}
-                                    {subTabConfig === 'maquinas' && renderSeccionCargaMasiva('Máquinas / Equipos', 'fa-industry', 'Ejemplo de pegado:\nPrensa Hidráulica 01\nCinta Transportadora B\nRobot Soldador 3...', textoMaquinas, setTextoMaquinas, guardarMaquinasMasivas)}
-                                    {subTabConfig === 'tareas' && renderSeccionCargaMasiva('Catálogo de Preventivos', 'fa-clipboard-list', 'Ejemplo de pegado:\nLubricación de rodamientos axiales\nCambio de filtros de aceite\nRevisión de sensores de proximidad...', textoTareas, setTextoTareas, guardarTareasMasivas)}
+                                    {subTabConfig === 'personal' && (
+                                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                            {/* (El formulario de personal se mantiene igual que en V12) */}
+                                            <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6 h-max">
+                                                <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">
+                                                    {editandoId ? <span class="text-yellow-400"><i class="fas fa-edit mr-2"></i>Editar Operario</span> : <span><i class="fas fa-user-plus text-blue-400 mr-2"></i>Alta de Personal</span>}
+                                                </h3>
+                                                <form onSubmit={guardarPersonal} class="space-y-4">
+                                                    <div>
+                                                        <label class="block text-xs text-gray-400 mb-1">Apellido y Nombre</label>
+                                                        <input type="text" required value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)} class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" placeholder="Ej: Silva, M." />
+                                                    </div>
+                                                    <div class="flex gap-4">
+                                                        <div class="w-1/2">
+                                                            <label class="block text-xs text-gray-400 mb-1">Ingreso</label>
+                                                            <input type="time" required value={nuevoIngreso} onChange={e => setNuevoIngreso(e.target.value)} class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
+                                                        </div>
+                                                        <div class="w-1/2">
+                                                            <label class="block text-xs text-gray-400 mb-1">Salida</label>
+                                                            <input type="time" required value={nuevoEgreso} onChange={e => setNuevoEgreso(e.target.value)} class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white" />
+                                                        </div>
+                                                    </div>
+                                                    <div class="flex gap-2 mt-2">
+                                                        <button type="submit" class={`flex-1 font-bold py-2 px-4 rounded transition shadow-lg text-white ${editandoId ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-blue-600 hover:bg-blue-500'}`}>
+                                                            {editandoId ? 'Actualizar Datos' : 'Guardar en Servidor'}
+                                                        </button>
+                                                        {editandoId && (
+                                                            <button type="button" onClick={cancelarEdicion} class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded transition"><i class="fas fa-times"></i></button>
+                                                        )}
+                                                    </div>
+                                                </form>
+                                            </div>
+
+                                            <div class="lg:col-span-2 bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6">
+                                                <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2 flex justify-between items-center">
+                                                    <span><i class="fas fa-users text-green-400 mr-2"></i> Plantilla Activa</span>
+                                                    <button onClick={obtenerPersonal} class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-gray-300"><i class="fas fa-sync-alt"></i></button>
+                                                </h3>
+                                                <div class="overflow-x-auto">
+                                                    <table class="w-full text-left text-sm text-gray-300">
+                                                        <thead class="text-xs text-gray-400 uppercase bg-gray-800 border-b border-gray-700">
+                                                            <tr><th class="px-4 py-3">Técnico</th><th class="px-4 py-3">Horario</th><th class="px-4 py-3">Estado</th><th class="px-4 py-3 text-right">Acciones</th></tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {personalDB.map(p => (
+                                                                <tr key={p.id} class={`border-b border-gray-700 hover:bg-gray-800 transition ${!p.activo ? 'opacity-50' : ''}`}>
+                                                                    <td class="px-4 py-3 font-medium text-white">{p.nombre_completo}</td>
+                                                                    <td class="px-4 py-3 font-mono text-xs">{p.hora_ingreso.slice(0,5)} a {p.hora_salida.slice(0,5)}</td>
+                                                                    <td class="px-4 py-3">
+                                                                        <button onClick={() => alternarEstadoActivo(p.id, p.activo)} class={`text-xs px-2 py-1 rounded font-bold ${p.activo ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
+                                                                            {p.activo ? 'Activo' : 'Inactivo'}
+                                                                        </button>
+                                                                    </td>
+                                                                    <td class="px-4 py-3 text-right">
+                                                                        <button onClick={() => iniciarEdicion(p)} class="text-blue-400 hover:text-blue-300 transition" title="Editar"><i class="fas fa-edit"></i></button>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {subTabConfig === 'excel' && (
+                                        <div class="max-w-6xl mx-auto space-y-6">
+                                            {/* CUADRO DE TEXTAREA */}
+                                            <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6">
+                                                <h3 class="text-lg font-bold text-white mb-2 flex items-center">
+                                                    <i class="fas fa-file-excel text-green-500 mr-2"></i> Carga Masiva desde Excel
+                                                </h3>
+                                                <p class="text-gray-400 text-sm mb-4">Pega aquí directamente las celdas copiadas de tu Excel. El sistema espera las 8 columnas solicitadas.</p>
+                                                
+                                                <textarea 
+                                                    value={textoExcel}
+                                                    onChange={e => setTextoExcel(e.target.value)}
+                                                    class="w-full bg-app-dark border border-gray-600 rounded p-4 text-sm text-gray-300 font-mono focus:border-blue-500 focus:outline-none mb-4 h-32 resize-y"
+                                                    placeholder="Descripción Máquina | Descripción Orden | Trabajo Anual | UM | Duración Normal | UM | Operarios | Período..."
+                                                ></textarea>
+                                                
+                                                <div>
+                                                    <button onClick={procesarExcel} class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded shadow transition border border-gray-600">
+                                                        Procesar Datos
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* TABLA INFERIOR */}
+                                            <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl overflow-hidden">
+                                                <div class="overflow-x-auto">
+                                                    <table class="w-full text-left text-sm text-gray-300">
+                                                        <thead class="text-xs text-gray-400 uppercase bg-gray-800 border-b border-gray-700">
+                                                            <tr>
+                                                                <th class="px-6 py-4">Máquina</th>
+                                                                <th class="px-6 py-4">Tarea Preventiva</th>
+                                                                <th class="px-6 py-4 text-center">Duración (min)</th>
+                                                                <th class="px-6 py-4 text-center">Operarios</th>
+                                                                <th class="px-6 py-4 text-right">Acciones</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {tareasDB.length === 0 ? (
+                                                                <tr>
+                                                                    <td colSpan="5" class="px-6 py-8 text-center text-gray-500">
+                                                                        No hay preventivos cargados. Pega los datos arriba para comenzar.
+                                                                    </td>
+                                                                </tr>
+                                                            ) : (
+                                                                tareasDB.map(t => (
+                                                                    <tr key={t.id} class="border-b border-gray-700 hover:bg-gray-800 transition">
+                                                                        <td class="px-6 py-3 font-medium text-white">{t.maquina || 'N/A'}</td>
+                                                                        <td class="px-6 py-3">{t.descripcion || 'N/A'}</td>
+                                                                        <td class="px-6 py-3 text-center">{t.duracion_minutos || '-'}</td>
+                                                                        <td class="px-6 py-3 text-center">{t.operarios_req || '-'}</td>
+                                                                        <td class="px-6 py-3 text-right">
+                                                                            <button onClick={() => eliminarTarea(t.id)} class="text-blue-400 hover:text-blue-300 transition" title="Editar">
+                                                                                <i class="fas fa-edit mr-3"></i>
+                                                                            </button>
+                                                                            <button onClick={() => eliminarTarea(t.id)} class="text-red-400 hover:text-red-300 transition" title="Eliminar">
+                                                                                <i class="fas fa-trash"></i>
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : (
