@@ -30,16 +30,14 @@
 
         function App() {
             const [tabActiva, setTabActiva] = useState('config'); 
-            const [subTabConfig, setSubTabConfig] = useState('excel'); // personal | excel
+            const [subTabConfig, setSubTabConfig] = useState('excel'); 
             
-            // Estados para Personal
             const [personalDB, setPersonalDB] = useState([]);
             const [editandoId, setEditandoId] = useState(null);
             const [nuevoNombre, setNuevoNombre] = useState('');
             const [nuevoIngreso, setNuevoIngreso] = useState('06:00');
             const [nuevoEgreso, setNuevoEgreso] = useState('14:18');
 
-            // Estados para Excel / Tareas
             const [textoExcel, setTextoExcel] = useState('');
             const [tareasDB, setTareasDB] = useState([]);
             const [mensajeExito, setMensajeExito] = useState('');
@@ -54,9 +52,6 @@
                 setTimeout(() => setMensajeExito(''), 4000);
             };
 
-            // ==========================================
-            // LOGICA: PERSONAL
-            // ==========================================
             const obtenerPersonal = async () => {
                 const { data } = await supabase.from('personal').select('*').order('nombre_completo', { ascending: true });
                 if (data) setPersonalDB(data);
@@ -92,11 +87,7 @@
                 obtenerPersonal();
             };
 
-            // ==========================================
-            // LOGICA: TAREAS (EXCEL)
-            // ==========================================
             const obtenerTareas = async () => {
-                // Asumimos que guardamos todo en tareas_maestras por ahora
                 const { data } = await supabase.from('tareas_maestras').select('*').order('id', { ascending: false }).limit(50);
                 if (data) setTareasDB(data);
             };
@@ -104,13 +95,11 @@
             const procesarExcel = async () => {
                 if (!textoExcel.trim()) return;
 
-                // Excel separa las columnas copiadas con tabulaciones (\t) y las filas con saltos de línea (\n)
                 const filas = textoExcel.split('\n').filter(f => f.trim() !== '');
                 const registrosNuevos = [];
 
                 filas.forEach(fila => {
                     const columnas = fila.split('\t');
-                    // Verificamos tener al menos las columnas clave (índice 0: Máquina, índice 1: Orden, índice 4: Duración, índice 6: Operarios)
                     if (columnas.length >= 7) {
                         registrosNuevos.push({
                             maquina: columnas[0].trim(),
@@ -131,7 +120,7 @@
                         obtenerTareas();
                     }
                 } else {
-                    alert('No se detectaron las 8 columnas requeridas. Asegúrate de copiar el formato correcto del Excel.');
+                    alert('No se detectaron las 8 columnas requeridas. Asegúrate de copiar el formato correcto del Excel (separado por tabulaciones).');
                 }
             };
 
@@ -142,12 +131,8 @@
                 }
             };
 
-            // ==========================================
-            // RENDER VISUAL
-            // ==========================================
             return (
                 <div class="flex h-full">
-                    {/* SIDEBAR */}
                     <div class="w-16 md:w-64 bg-card-dark border-r border-gray-800 flex flex-col z-20 shadow-xl">
                         <div class="p-4 md:p-6 border-b border-gray-800 text-center md:text-left">
                             <h1 class="text-xl font-bold text-white tracking-wider hidden md:block">
@@ -165,7 +150,6 @@
                         </nav>
                     </div>
 
-                    {/* MAIN CONTENT */}
                     <div class="flex-1 flex flex-col overflow-hidden bg-app-dark relative">
                         {mensajeExito && (
                             <div class="absolute top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg flex items-center z-50">
@@ -175,7 +159,6 @@
 
                         {tabActiva === 'config' ? (
                             <div class="flex-1 flex flex-col h-full">
-                                {/* PESTAÑAS INTERNAS */}
                                 <div class="bg-gray-900 border-b border-gray-800 p-4 flex gap-4">
                                     <button onClick={() => setSubTabConfig('personal')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'personal' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Personal / Técnicos</button>
                                     <button onClick={() => setSubTabConfig('excel')} class={`px-4 py-2 rounded text-sm font-bold transition ${subTabConfig === 'excel' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Carga Masiva Excel</button>
@@ -184,7 +167,6 @@
                                 <div class="p-6 overflow-y-auto flex-1">
                                     {subTabConfig === 'personal' && (
                                         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                            {/* (El formulario de personal se mantiene igual que en V12) */}
                                             <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6 h-max">
                                                 <h3 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">
                                                     {editandoId ? <span class="text-yellow-400"><i class="fas fa-edit mr-2"></i>Editar Operario</span> : <span><i class="fas fa-user-plus text-blue-400 mr-2"></i>Alta de Personal</span>}
@@ -249,7 +231,6 @@
 
                                     {subTabConfig === 'excel' && (
                                         <div class="max-w-6xl mx-auto space-y-6">
-                                            {/* CUADRO DE TEXTAREA */}
                                             <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl p-6">
                                                 <h3 class="text-lg font-bold text-white mb-2 flex items-center">
                                                     <i class="fas fa-file-excel text-green-500 mr-2"></i> Carga Masiva desde Excel
@@ -270,7 +251,6 @@
                                                 </div>
                                             </div>
 
-                                            {/* TABLA INFERIOR */}
                                             <div class="bg-card-dark rounded-xl border border-gray-700 shadow-xl overflow-hidden">
                                                 <div class="overflow-x-auto">
                                                     <table class="w-full text-left text-sm text-gray-300">
@@ -298,9 +278,6 @@
                                                                         <td class="px-6 py-3 text-center">{t.duracion_minutos || '-'}</td>
                                                                         <td class="px-6 py-3 text-center">{t.operarios_req || '-'}</td>
                                                                         <td class="px-6 py-3 text-right">
-                                                                            <button onClick={() => eliminarTarea(t.id)} class="text-blue-400 hover:text-blue-300 transition" title="Editar">
-                                                                                <i class="fas fa-edit mr-3"></i>
-                                                                            </button>
                                                                             <button onClick={() => eliminarTarea(t.id)} class="text-red-400 hover:text-red-300 transition" title="Eliminar">
                                                                                 <i class="fas fa-trash"></i>
                                                                             </button>
